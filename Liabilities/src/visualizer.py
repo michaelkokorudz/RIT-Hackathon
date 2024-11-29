@@ -6,20 +6,24 @@ class MarketVisualizer:
     def __init__(self):
         plt.ion()
         self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(12, 8))
-        self.max_points = 1000
+        self.max_points = 100
         
-        # Initialize deques
-        self.abc_prices = deque(maxlen=self.max_points)
-        self.abc_bids = deque(maxlen=self.max_points)
-        self.abc_asks = deque(maxlen=self.max_points)
-        self.xyz_prices = deque(maxlen=self.max_points)
-        self.xyz_bids = deque(maxlen=self.max_points)
-        self.xyz_asks = deque(maxlen=self.max_points)
-        self.ticks = deque(maxlen=self.max_points)
+        # Initialize deques for historical data
+        self.abc_data = {
+            'ticks': deque(maxlen=self.max_points),
+            'prices': deque(maxlen=self.max_points),
+            'bids': deque(maxlen=self.max_points),
+            'asks': deque(maxlen=self.max_points)
+        }
+        self.xyz_data = {
+            'ticks': deque(maxlen=self.max_points),
+            'prices': deque(maxlen=self.max_points),
+            'bids': deque(maxlen=self.max_points),
+            'asks': deque(maxlen=self.max_points)
+        }
         
         self.last_update = time.time()
         self.min_update_interval = 0.5
-        
         plt.show(block=False)
 
     def update(self, securities, abc_history, xyz_history):
@@ -36,72 +40,64 @@ class MarketVisualizer:
         if not (abc_security and xyz_security and abc_history and xyz_history):
             return
 
-        # Clear existing data
-        self.abc_prices.clear()
-        self.abc_bids.clear()
-        self.abc_asks.clear()
-        self.xyz_prices.clear()
-        self.xyz_bids.clear()
-        self.xyz_asks.clear()
-        self.ticks.clear()
-
-        # Add historical data
-        for abc_data, xyz_data in zip(abc_history, xyz_history):
-            self.ticks.append(abc_data['tick'])
-            self.abc_prices.append(abc_data['close'])
-            self.abc_bids.append(abc_data['close'])
-            self.abc_asks.append(abc_data['close'])
-            self.xyz_prices.append(xyz_data['close'])
-            self.xyz_bids.append(xyz_data['close'])
-            self.xyz_asks.append(xyz_data['close'])
-
-        # Add current data point if it's newer
-        if abc_history and self.ticks[-1] < abc_security['tick']:
-            self.ticks.append(abc_security['tick'])
-            self.abc_prices.append(abc_security['last'])
-            self.abc_bids.append(abc_security['bid'])
-            self.abc_asks.append(abc_security['ask'])
-            self.xyz_prices.append(xyz_security['last'])
-            self.xyz_bids.append(xyz_security['bid'])
-            self.xyz_asks.append(xyz_security['ask'])
-
+        # Update data structures
+        self._update_security_data(self.abc_data, abc_history, abc_security)
+        self._update_security_data(self.xyz_data, xyz_history, xyz_security)
+        
         self._draw_plots(abc_security, xyz_security)
 
+    def _update_security_data(self, data_dict, history, current):
+        # Initialize data structures if empty
+        if not data_dict['ticks']:
+            # Load historical data first
+            for i, entry in enumerate(history[-self.max_points:]):
+                data_dict['ticks'].append(i)  # Use sequential numbers for ticks
+                data_dict['prices'].append(entry['close'])
+                data_dict['bids'].append(entry['close'])
+                data_dict['asks'].append(entry['close'])
+        else:
+            # Get the next tick number
+            next_tick = data_dict['ticks'][-1] + 1
+            
+            # Add current data point
+            data_dict['ticks'].append(next_tick)
+            data_dict['prices'].append(current['last'])
+            data_dict['bids'].append(current['bid'])
+            data_dict['asks'].append(current['ask'])
+
     def _draw_plots(self, abc_security, xyz_security):
-        self.fig.clear()
-        self.ax1, self.ax2 = self.fig.subplots(2, 1)
+        self.ax1.clear()
+        self.ax2.clear()
         
-        clear_points = int(self.max_points * 0.2)
-        plot_ticks = list(self.ticks) + [max(self.ticks) + i for i in range(1, clear_points + 1)]
-        
-        # Plot ABC
-        self._plot_security(self.ax1, 'ABC', self.abc_prices, abc_security, plot_ticks, clear_points)
-        # Plot XYZ
-        self._plot_security(self.ax2, 'XYZ', self.xyz_prices, xyz_security, plot_ticks, clear_points)
+        self._plot_security(self.ax1, 'ABC', self.abc_data, abc_security)
+        self._plot_security(self.ax2, 'XYZ', self.xyz_data, xyz_security)
 
         plt.tight_layout()
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
 
-    def _plot_security(self, ax, ticker, prices, security, plot_ticks, clear_points):
-        # Plot price line
-        ax.plot(list(self.ticks), list(prices), 'b-', label='Price', linewidth=2)
-        
-        # Plot bid/ask projections
-        ax.plot(plot_ticks[-clear_points:], [security['bid']] * clear_points, 'r--', 
-               label=f'Bid ${security["bid"]:.2f}', alpha=0.5)
-        ax.plot(plot_ticks[-clear_points:], [security['ask']] * clear_points, 'g--', 
-               label=f'Ask ${security["ask"]:.2f}', alpha=0.5)
+    def _plot_security(self, ax, ticker, data, security):
+        if not data['prices']:
+            return
+
+        # Convert deques to lists for plotting
+        ticks = list(data['ticks'])
+        prices = list(data['prices'])
+        bids = list(data['bids'])
+        asks = list(data['asks'])
+
+        # Plot lines
+        ax.plot(ticks, prices, 'b-', label='Price', linewidth=1.5)
+        ax.plot(ticks, bids, 'r--', label=f'Bid ${security["bid"]:.2f}', alpha=0.5)
+        ax.plot(ticks, asks, 'g--', label=f'Ask ${security["ask"]:.2f}', alpha=0.5)
+
+        # Dynamic y-axis limits based on min/max with padding
+        all_values = prices + bids + asks
+        y_min, y_max = min(all_values), max(all_values)
+        padding = (y_max - y_min) * 0.1 if y_max != y_min else 0.1
+        ax.set_ylim(y_min - padding, y_max + padding)
 
         # Customize plot
-        ax.set_title(f'{ticker} Stock')
+        ax.set_title(f'{ticker} Stock Price: ${security["last"]:.2f}')
         ax.grid(True, alpha=0.3)
         ax.legend(loc='upper left')
-        ax.set_xlim(min(self.ticks), max(plot_ticks))
-        
-        # Set $5 window
-        current_price = security['last']
-        window_size = 5.0
-        y_min = current_price - window_size/2
-        y_max = current_price + window_size/2
-        ax.set_ylim(y_min, y_max)
