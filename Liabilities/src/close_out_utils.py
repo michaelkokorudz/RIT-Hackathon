@@ -12,11 +12,10 @@ def calculate_liquidity(order_book, action):
     """
     if action.upper() == "SELL":
         # For a buy tender, use the ask side (selling liquidity)
-        # to close this position, we must buy the shares back, which will interact with the ask side
+        # to close this position, we must buy the shares back, which will interaat with the ask side
         return sum(ask["quantity"] for ask in order_book.get("asks", []))
     elif action.upper() == "BUY":
         # For a sell tender, use the bid side (buying liquidity)
-        # to close this position, we must sell the shares back, which will interact with the bid side
         return sum(bid["quantity"] for bid in order_book.get("bids", []))
     else:
         raise ValueError("Invalid action. Use 'BUY' or 'SELL'.")

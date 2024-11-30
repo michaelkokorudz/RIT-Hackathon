@@ -12,7 +12,7 @@ def load_settings():
     print("Loading settings...")
     current_dir = os.path.dirname(os.path.abspath(__file__))
     settings_path = os.path.join(current_dir, 'settings.json')
-        
+
     try:
         with open(settings_path) as f:
             print("Settings loaded successfully.")
@@ -63,6 +63,8 @@ def main():
 
                 try:
                     securities = client.get_securities()
+                    if not securities:
+                        raise ValueError("Securities data is empty or None.")
                     print("Securities fetched successfully.")
                 except Exception as e:
                     print(f"Error fetching securities: {e}")
@@ -71,6 +73,8 @@ def main():
 
                 try:
                     tenders = client.get_tenders()
+                    if tenders is None:
+                        raise ValueError("Tenders data is None.")
                     print(f"Tenders fetched: {len(tenders)} active offers.")
                 except Exception as e:
                     print(f"Error fetching tenders: {e}")
@@ -90,13 +94,19 @@ def main():
                     try:
                         order_book = client.get_order_book(ticker)
                         liquidity = calculate_liquidity(order_book, action=tender["action"])
+
+                        # Ensure that securities contain data for the ticker
+                        security_data = next((s for s in securities if s["ticker"] == ticker), None)
+                        if not security_data:
+                            raise ValueError(f"No securities data found for ticker {ticker}.")
+
                         market_data = {
-                            "bid": next(s["bid"] for s in securities if s["ticker"] == ticker),
-                            "ask": next(s["ask"] for s in securities if s["ticker"] == ticker),
-                            "last": next(s["last"] for s in securities if s["ticker"] == ticker),
+                            "bid": security_data["bid"],
+                            "ask": security_data["ask"],
+                            "last": security_data["last"],
                             "volatility": calculate_volatility(
                                 ticker=ticker,
-                                prices=[s["last"] for s in securities if s["ticker"] == ticker],
+                                prices=[security_data["last"]],
                                 liquidity=liquidity,
                                 elapsed_time=current_tick,
                                 current_tender_size=tender["quantity"],
@@ -123,14 +133,33 @@ def main():
                 time.sleep(2)
 
             elif session_status == "ENDED":
-                print("Session has ENDED. Exiting...")
-                break
+                print("Session has ENDED. Resetting visualizer and waiting for new simulation...")
+                visualizer.reset()
+
+                # Wait for a new simulation to start
+                while session_status == "ENDED":
+                    time.sleep(2)
+                    try:
+                        case_status = client.get_case_status()
+                        session_status = case_status.get("status")
+                        current_tick = case_status.get("tick", 0)
+                        print(f"Waiting... Session Status: {session_status}, Tick: {current_tick}")
+                    except Exception as e:
+                        print(f"Error fetching case status: {e}")
+                        time.sleep(1)
+                        continue
+
+                print("New simulation detected. Reinitializing visualizer.")
+                # Reinitialize the visualizer for the new simulation
+                visualizer.reset()
 
             time.sleep(1)
     except KeyboardInterrupt:
         print("\nStopping market data monitoring...")
+        visualizer.reset()
     except Exception as e:
         print(f"An error occurred: {e}")
+        visualizer.reset()
 
 
 if __name__ == "__main__":
