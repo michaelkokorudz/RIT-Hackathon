@@ -12,7 +12,7 @@ class RITClient:
             'X-API-Key': self.api_key,
             'Authorization': f"Basic {self.user}:{self.password}"
         }
-        
+
     def _make_request(self, endpoint, params=None):
         try:
             url = f"{self.base_url}{endpoint}"
@@ -31,12 +31,18 @@ class RITClient:
 
     def get_securities(self):
         return self._make_request(f"/{self.api_version}/securities")
-    
-    def get_positions(self):
-        return self._make_request(f"/{self.api_version}/positions")
-    
+
     def get_ticker_history(self, ticker):
-        return self._make_request(f"/{self.api_version}/securities/history", params={'ticker': ticker})
+         return self._make_request(f"/{self.api_version}/securities/history", params={'ticker': ticker})
         
     def get_tenders(self):
         return self._make_request(f"/{self.api_version}/tenders")
+
+    def get_order_book(self, ticker, limit=10):
+        return self._make_request(f"/{self.api_version}/securities/book", params={'ticker': ticker, 'limit': limit})
+
+    def get_case_status(self):
+        """
+        Fetches the current status of the case.
+        """
+        return self._make_request(f"/{self.api_version}/case")
