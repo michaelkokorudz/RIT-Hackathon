@@ -73,6 +73,9 @@ class APITester:
             limit_price = float(security.get('bid', 0)) - 0.10  # More conservative pricing
             print(f"Submitting limit order at {limit_price}")
             
+            # Add more debug info
+            print(f"Security details: {json.dumps(security, indent=2)}")
+            
             limit_order = self.client.submit_order(
                 ticker=ticker,
                 type=OrderType.LIMIT,
@@ -82,6 +85,7 @@ class APITester:
             )
             
             if limit_order:
+                
                 print(f"Successfully submitted limit order: {limit_order}")
                 self._save_data(limit_order, 'limit_order_test')
                 
@@ -97,18 +101,67 @@ class APITester:
                     print("Failed to cancel orders")
             else:
                 print("Failed to submit limit order")
+                print("Checking API status...")
+                api_info = self.client._make_request("api/info")
+                if api_info:
+                    print("API is accessible. Available endpoints:")
+                    print(json.dumps(api_info, indent=2))
                 
         except Exception as e:
             print(f"Order submission test failed: {e}")
+            print("Attempting to get API status...")
+            try:
+                api_info = self.client._make_request("api/info")
+                if api_info:
+                    print("API is still accessible")
+            except Exception as inner_e:
+                print(f"Could not get API status: {inner_e}")
+
+    def test_case_info(self):
+        """Test case information endpoint"""
+        print("\nTesting case information...")
+        try:
+            response = self.client._make_request("case")
+            if response:
+                print("Case Information:")
+                print(json.dumps(response, indent=2))
+            else:
+                print("Failed to get case information")
+        except Exception as e:
+            print(f"Case information test failed: {e}")
+
+    def test_api_info(self):
+        """Test API information endpoint to see available methods"""
+        print("\nTesting API information...")
+        try:
+            response = self.client._make_request("api/info")
+            if response:
+                print("Available API Methods:")
+                print(json.dumps(response, indent=2))
+            else:
+                print("Failed to get API information")
+        except Exception as e:
+            print(f"API information test failed: {e}")
 
 def main():
     tester = APITester()
     
-    # Run securities test for 10 seconds
-    tester.test_securities(duration=10)
+    # Test API information first
+    try:
+        tester.test_api_info()
+    except Exception as e:
+        print(f"API info test failed but continuing: {e}")
+
+    # Skip securities test
+    # tester.test_securities(duration=10)
     
-    # Test order submission
-    tester.test_order_submission()
+    # Test order submission with better error handling
+    try:
+        print("\nAttempting order submission with debug info...")
+        tester.test_order_submission()
+    except Exception as e:
+        print(f"Order submission test failed: {e}")
+        print("Response headers and status code would be helpful here")
 
 if __name__ == "__main__":
     main()

@@ -1,188 +1,125 @@
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+from typing import Dict, Any, List
 from collections import deque
+import numpy as np
 import time
-from typing import Dict, List, Any, Optional
-from src.config import VISUALIZATION_CONFIG, SecurityConfig
 
 class MarketVisualizer:
     def __init__(self):
-        plt.ion()
-        self.fig, ((self.ax1, self.ax2), (self.ax3, self.ax4), (self.ax_pnl, self.ax_combined)) = plt.subplots(
-            3, 2, 
-            figsize=VISUALIZATION_CONFIG['figure_size']
-        )
-        self.max_points = VISUALIZATION_CONFIG['max_price_points']
+        """Initialize the market visualizer with plots for each security"""
+        self.fig = plt.figure(figsize=(15, 10))
+        self.gs = GridSpec(3, 2, figure=self.fig)
         
-        # Initialize data structures with type hints
-        self.securities_data: Dict[str, Dict[str, deque]] = {
-            ticker: self._create_security_deques()
-            for ticker in ['OWL', 'CROW', 'DOVE', 'DUCK']
-        }
+        # Store data for each security
+        self.securities_data = {}
         
-        self.security_axes: Dict[str, plt.Axes] = {
-            'OWL': self.ax1,
-            'CROW': self.ax2,
-            'DOVE': self.ax3,
-            'DUCK': self.ax4
-        }
+        # Configure plot settings
+        plt.style.use('dark_background')
+        self.fig.patch.set_facecolor('#1C1C1C')
         
-        # Initialize P&L tracking
-        self.pnl_data: Dict[str, deque] = {
-            'times': deque(maxlen=VISUALIZATION_CONFIG['max_pnl_points']),
-            'total_pnl': deque(maxlen=VISUALIZATION_CONFIG['max_pnl_points'])
-        }
+        # Initialize P&L plot
+        self.pnl_ax = self.fig.add_subplot(self.gs[2, :])
+        self.pnl_data = deque(maxlen=100)
+        self.pnl_times = deque(maxlen=100)
         
-        # Initialize combined price tracking
-        self.combined_data: Dict[str, Dict[str, deque]] = {
-            ticker: {
-                'times': deque(maxlen=600),
-                'prices': deque(maxlen=600)
-            } for ticker in ['OWL', 'CROW', 'DOVE', 'DUCK']
-        }
+        # Settings
+        self.max_points = 100
+        plt.ion()  # Enable interactive mode
         
-        self.start_time: Optional[float] = None
-        plt.show(block=False)
-
-    def _create_security_deques(self) -> Dict[str, deque]:
-        """Create deques for a security's data with proper typing"""
-        return {
-            'ticks': deque(maxlen=self.max_points),
-            'prices': deque(maxlen=self.max_points),
-            'bids': deque(maxlen=self.max_points),
-            'asks': deque(maxlen=self.max_points)
-        }
-
-    def update(self, 
-              securities: List[Dict[str, Any]], 
-              histories: Dict[str, List[Dict[str, Any]]], 
-              current_pnl: float
-    ) -> None:
-        """Update visualization with new market data"""
-        if self.start_time is None:
-            self.start_time = time.time()
-        
-        current_time = time.time() - self.start_time
-        
-        # Update existing security plots
-        for ticker in self.securities_data.keys():
-            security = next((s for s in securities if s['ticker'] == ticker), None)
-            history = histories.get(ticker)
+    def _initialize_security(self, ticker: str):
+        """Initialize plots for a new security"""
+        if ticker not in self.securities_data:
+            # Determine subplot position
+            position = len(self.securities_data)
+            row = position // 2
+            col = position % 2
             
-            if security and history:
-                self._update_security_data(self.securities_data[ticker], history, security)
-                
-                # Update combined price data
-                self.combined_data[ticker]['times'].append(current_time)
-                self.combined_data[ticker]['prices'].append(security['last'])
+            # Create subplot
+            ax = self.fig.add_subplot(self.gs[row, col])
+            
+            self.securities_data[ticker] = {
+                'ax': ax,
+                'prices': deque(maxlen=self.max_points),
+                'times': deque(maxlen=self.max_points),
+                'bids': deque(maxlen=self.max_points),
+                'asks': deque(maxlen=self.max_points)
+            }
+            
+            # Configure subplot
+            ax.set_title(f'{ticker} Price Movement')
+            ax.set_xlabel('Time')
+            ax.set_ylabel('Price')
+            ax.grid(True, alpha=0.3)
+    
+    def update(self, securities: List[Dict[str, Any]], price_history: Dict[str, deque], current_pnl: float):
+        """Update the visualization with new market data"""
+        current_time = time.strftime('%H:%M:%S')
         
-        # Update P&L data
-        self.pnl_data['times'].append(current_time)
-        self.pnl_data['total_pnl'].append(current_pnl)
+        # Update security plots
+        for security in securities:
+            ticker = security['ticker']
+            
+            # Initialize if new security
+            if ticker not in self.securities_data:
+                self._initialize_security(ticker)
+            
+            # Convert deque to list for plotting
+            history = list(price_history[ticker])
+            self._update_security_data(self.securities_data[ticker], history, security)
         
-        self._draw_plots(securities)
-        self._draw_pnl()
-        self._draw_combined_prices()
-
-    def _update_security_data(self, 
-                            data_dict: Dict[str, deque], 
-                            history: List[Dict[str, Any]], 
-                            current: Dict[str, Any]
-    ) -> None:
-        """Update price history for a single security"""
-        if not data_dict['ticks']:
-            # Load historical data first
-            for i, entry in enumerate(history[-self.max_points:]):
-                data_dict['ticks'].append(i)
-                data_dict['prices'].append(entry['close'])
-                data_dict['bids'].append(entry['close'])
-                data_dict['asks'].append(entry['close'])
-        else:
-            next_tick = data_dict['ticks'][-1] + 1
-            data_dict['ticks'].append(next_tick)
-            data_dict['prices'].append(current['last'])
-            data_dict['bids'].append(current['bid'])
-            data_dict['asks'].append(current['ask'])
-
-    def _draw_plots(self, securities: List[Dict[str, Any]]) -> None:
-        """Draw individual security plots"""
-        # Clear all axes
-        for ax in self.security_axes.values():
-            ax.clear()
+        # Update P&L plot
+        self.pnl_data.append(current_pnl)
+        self.pnl_times.append(current_time)
+        self._update_pnl_plot()
         
-        # Update each security plot
-        for ticker, security in self.securities_data.items():
-            current_security = next((s for s in securities if s['ticker'] == ticker), None)
-            if current_security:
-                self._plot_security(
-                    self.security_axes[ticker],
-                    ticker,
-                    security,
-                    current_security
-                )
-
-        plt.tight_layout()
+        # Refresh the figure
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
-
-    def _plot_security(self, 
-                      ax: plt.Axes, 
-                      ticker: str, 
-                      data: Dict[str, deque], 
-                      security: Dict[str, Any]
-    ) -> None:
-        """Plot a single security's data"""
-        if not data['prices']:
-            return
-
-        # Convert deques to lists for plotting
-        ticks = list(data['ticks'])
-        prices = list(data['prices'])
-        bids = list(data['bids'])
-        asks = list(data['asks'])
-
-        # Plot lines with improved styling
-        ax.plot(ticks, prices, 'b-', label='Price', linewidth=1.5)
-        ax.plot(ticks, bids, 'r--', label=f'Bid ${security["bid"]:.2f}', alpha=0.5)
-        ax.plot(ticks, asks, 'g--', label=f'Ask ${security["ask"]:.2f}', alpha=0.5)
-
-        # Dynamic y-axis limits with padding
-        all_values = prices + bids + asks
-        y_min, y_max = min(all_values), max(all_values)
-        padding = (y_max - y_min) * 0.1 if y_max != y_min else 0.1
-        ax.set_ylim(y_min - padding, y_max + padding)
-
-        # Customize plot appearance
-        ax.set_title(f'{ticker} Price: ${security["last"]:.2f}')
+    
+    def _update_security_data(self, data: Dict, history: List, security: Dict):
+        """Update data for a single security"""
+        current_time = time.strftime('%H:%M:%S')
+        
+        # Add new price data
+        if history:
+            data['prices'].append(history[-1])  # Latest price
+        data['times'].append(current_time)
+        data['bids'].append(security['bid'])
+        data['asks'].append(security['ask'])
+        
+        # Update plot
+        ax = data['ax']
+        ax.clear()
+        
+        # Plot price, bid, and ask lines
+        ax.plot(list(data['times']), list(data['prices']), 'w-', label='Price', alpha=0.8)
+        ax.plot(list(data['times']), list(data['bids']), 'g-', label='Bid', alpha=0.5)
+        ax.plot(list(data['times']), list(data['asks']), 'r-', label='Ask', alpha=0.5)
+        
+        # Configure plot
+        ax.set_title(f'{security["ticker"]} Price Movement')
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Price')
         ax.grid(True, alpha=0.3)
-        ax.legend(loc='upper left', fontsize='small')
-
-    def _draw_pnl(self) -> None:
-        """Draw P&L chart"""
-        self.ax_pnl.clear()
-        self.ax_pnl.plot(
-            list(self.pnl_data['times']), 
-            list(self.pnl_data['total_pnl']), 
-            'g-', 
-            label='Total P&L'
-        )
-        self.ax_pnl.set_title('Trading P&L')
-        self.ax_pnl.grid(True, alpha=0.3)
-        self.ax_pnl.legend()
-        self.ax_pnl.set_xlabel('Time (seconds)')
-        self.ax_pnl.set_ylabel('P&L ($)')
-
-    def _draw_combined_prices(self) -> None:
-        """Draw combined price chart"""
-        self.ax_combined.clear()
-        for ticker in self.combined_data:
-            self.ax_combined.plot(
-                list(self.combined_data[ticker]['times']),
-                list(self.combined_data[ticker]['prices']),
-                label=ticker,
-                linewidth=1.0
-            )
-        self.ax_combined.set_title('Combined Price History')
-        self.ax_combined.grid(True, alpha=0.3)
-        self.ax_combined.legend()
-        self.ax_combined.set_xlabel('Time (seconds)')
-        self.ax_combined.set_ylabel('Price ($)')
+        ax.legend()
+        
+        # Rotate x-axis labels for better readability
+        ax.tick_params(axis='x', rotation=45)
+    
+    def _update_pnl_plot(self):
+        """Update the P&L plot"""
+        self.pnl_ax.clear()
+        
+        # Plot P&L line
+        self.pnl_ax.plot(list(self.pnl_times), list(self.pnl_data), 'y-', label='P&L')
+        
+        # Configure plot
+        self.pnl_ax.set_title('Profit & Loss')
+        self.pnl_ax.set_xlabel('Time')
+        self.pnl_ax.set_ylabel('P&L ($)')
+        self.pnl_ax.grid(True, alpha=0.3)
+        self.pnl_ax.legend()
+        
+        # Rotate x-axis labels for better readability
+        self.pnl_ax.tick_params(axis='x', rotation=45)

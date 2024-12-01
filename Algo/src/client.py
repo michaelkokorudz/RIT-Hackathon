@@ -31,7 +31,7 @@ class RITClient:
         
         self.headers = {
             'X-API-Key': self.api_key,
-            'Authorization': f'Basic {base64_auth}'
+            'Authorization': base64_auth
         }
         
         self._test_connection()
@@ -56,15 +56,13 @@ class RITClient:
 
     def _make_request(self, endpoint: str, method: str = "GET", params: Dict = None, json: Dict = None) -> Optional[Dict]:
         """Make a request to the RIT API"""
-        url = f"{self.base_url}/{endpoint.lstrip('/')}"
-        if not endpoint.startswith(self.api_version):
-            url = f"{self.base_url}/{self.api_version}/{endpoint.lstrip('/')}"
+        url = f"{self.base_url}/{self.api_version}/{endpoint}"
         
         try:
             if method == "GET":
                 response = requests.get(url, headers=self.headers, params=params, timeout=5)
             elif method == "POST":
-                response = requests.post(url, headers=self.headers, json=json, timeout=5)
+                response = requests.post(url, headers=self.headers, params=params, timeout=5)
             elif method == "DELETE":
                 response = requests.delete(url, headers=self.headers, timeout=5)
             
@@ -82,9 +80,9 @@ class RITClient:
     def submit_order(
         self,
         ticker: str,
-        type: OrderType,
+        type: str,
         quantity: int,
-        action: OrderAction,
+        action: str,
         price: Optional[float] = None
     ) -> Optional[Dict[str, Any]]:
         """Submit a new order"""
@@ -92,18 +90,30 @@ class RITClient:
             print("Invalid quantity: must be positive")
             return None
         
-        payload = {
+        params = {
             "ticker": ticker,
-            "type": type.value,
+            "type": type,
             "quantity": int(quantity),
-            "action": action.value,
-            "price": round(price, 2) if price else None
+            "action": action
         }
         
-        payload = {k: v for k, v in payload.items() if v is not None}
+        if price is not None:
+            params["price"] = round(price, 2)
         
-        return self._make_request("orders", method="POST", json=payload)
+        return self._make_request("orders", method="POST", params=params)
+
+    def cancel_orders_for_ticker(self, ticker: str) -> Optional[Dict[str, Any]]:
+        """Cancel all orders for a specific ticker"""
+        return self._make_request("commands/cancel", method="POST", params={"ticker": ticker})
 
     def cancel_all_orders(self) -> Optional[Dict[str, Any]]:
         """Cancel all existing orders"""
-        return self._make_request("orders", method="DELETE")
+        return self._make_request("commands/cancel", method="POST", params={"all": 1})
+
+    def get_ticker_history(self, ticker: str) -> Optional[List[Dict[str, Any]]]:
+        """Get historical data for a specific ticker"""
+        params = {
+            "ticker": ticker,
+            "length": 10  # Default to 10 data points, adjust as needed
+        }
+        return self._make_request("securities/history", method="GET", params=params)
